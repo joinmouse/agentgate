@@ -1,0 +1,59 @@
+# AgentGate 示例配置 — 零依赖可运行（mock provider）。
+# 接入真实模型：把 provider type 改成 "openai"，填 base_url / api_key 即可
+# （Kimi: https://api.moonshot.cn/v1，OpenAI: https://api.openai.com/v1）。
+
+[gateway]
+host = "127.0.0.1"
+port = 8090
+db_path = "agentgate.db"
+admin_key = "admin-dev-key"
+
+# ---- API keys：每个调用方的配额与限流策略 ----
+[[keys]]
+key = "sk-demo-alice"
+name = "alice"
+daily_quota_tokens = 100000
+rpm = 60
+
+[[keys]]
+key = "sk-demo-bob"
+name = "bob"
+daily_quota_tokens = 10000
+rpm = 20
+
+# ---- Providers：模型提供方 ----
+[[providers]]
+name = "mock-kimi"
+type = "mock"
+models = ["kimi-k2.6", "kimi-k2.6-mini"]
+latency_ms = 80
+fail_rate = 0.0
+
+[[providers]]
+name = "mock-backup"
+type = "mock"
+models = ["kimi-k2.6", "qwen3-plus"]
+latency_ms = 150
+fail_rate = 0.0
+
+# 真实 provider 示例（取消注释并填 key）：
+# [[providers]]
+# name = "moonshot"
+# type = "openai"
+# base_url = "https://api.moonshot.cn/v1"
+# api_key = "sk-..."
+# models = ["kimi-k2.6"]
+
+# ---- 价格表（USD / 百万 tokens，[prompt, completion]）----
+# 注意：以下为演示用示例价格，接入生产前请按官方最新价目更新。
+[pricing]
+"kimi-k2.6" = [0.60, 2.50]
+"kimi-k2.6-mini" = [0.10, 0.40]
+"qwen3-plus" = [0.40, 1.20]
+
+# ---- 路由：alias -> 有序候选链 "provider/model" ----
+# 路由器在候选内按成本升序重排，熔断的 provider 自动沉底。
+[routes]
+auto = ["mock-kimi/kimi-k2.6", "mock-backup/kimi-k2.6"]
+cheap = ["mock-kimi/kimi-k2.6-mini", "mock-backup/qwen3-plus"]
+smart = ["mock-kimi/kimi-k2.6"]

@@ -1,0 +1,60 @@
+[gateway]
+host = "127.0.0.1"
+port = 8099
+db_path = "demo.db"
+admin_key = "admin-dev-key"
+
+[[keys]]
+key = "sk-demo-alice"
+name = "alice"
+daily_quota_tokens = 100000
+rpm = 60
+
+[[keys]]
+key = "sk-demo-bob"
+name = "bob"
+daily_quota_tokens = 10000
+rpm = 20
+
+[[keys]]
+key = "sk-demo-tiny"
+name = "tiny"
+daily_quota_tokens = 30
+rpm = 1000
+
+[[keys]]
+key = "sk-demo-storm"
+name = "storm"
+daily_quota_tokens = 100000
+rpm = 5
+
+[[providers]]
+name = "mock-kimi"
+type = "mock"
+models = ["kimi-k2.6", "kimi-k2.6-mini"]
+latency_ms = 60
+fail_rate = 0.0
+
+[[providers]]
+name = "mock-flaky"
+type = "mock"
+models = ["kimi-k2.6"]
+latency_ms = 40
+fail_rate = 1.0
+
+[[providers]]
+name = "mock-backup"
+type = "mock"
+models = ["kimi-k2.6"]
+latency_ms = 140
+fail_rate = 0.0
+
+[pricing]
+"kimi-k2.6" = [0.60, 2.50]
+"kimi-k2.6-mini" = [0.10, 0.40]
+
+[routes]
+auto = ["mock-kimi/kimi-k2.6", "mock-backup/kimi-k2.6"]
+cheap = ["mock-kimi/kimi-k2.6-mini"]
+smart = ["mock-kimi/kimi-k2.6"]
+flaky = ["mock-flaky/kimi-k2.6", "mock-backup/kimi-k2.6"]

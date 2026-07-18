@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentGate 控制台</title>
+<style>
+  :root { --ink:#2b2622; --muted:#8a8078; --bg:#faf7f2; --card:#fff; --line:#e8e2d8; --accent:#b4642a; --ok:#3f7d4e; --err:#b03a2e; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); padding:24px; max-width:1200px; margin:0 auto; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:24px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .stat .v { font-size:24px; font-weight:600; margin-top:4px; }
+  .stat .l { color:var(--muted); font-size:12px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:20px; }
+  h2 { font-size:15px; margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; }
+  .tag.ok { background:#e6f0e8; color:var(--ok); }
+  .tag.error { background:#f7e6e4; color:var(--err); }
+  input { padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; width:280px; }
+  button { padding:6px 14px; border:none; border-radius:8px; background:var(--accent); color:#fff; font-size:13px; cursor:pointer; }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; }
+  details { font-size:12px; } summary { cursor:pointer; color:var(--accent); }
+</style>
+</head>
+<body>
+<h1>AgentGate 控制台</h1>
+<div class="sub">模型网关 · 智能路由 · 成本控制 · 链路追踪与失败归因</div>
+<div style="margin-bottom:16px">
+  <input id="ak" placeholder="输入 Admin Key 后回车加载" value="admin-dev-key">
+  <button onclick="loadAll()">加载</button>
+</div>
+<div class="grid">
+  <div class="stat"><div class="l">总调用数</div><div class="v" id="s-calls">-</div></div>
+  <div class="stat"><div class="l">失败率</div><div class="v" id="s-fail">-</div></div>
+  <div class="stat"><div class="l">总成本 (USD)</div><div class="v" id="s-cost">-</div></div>
+  <div class="stat"><div class="l">总 Tokens</div><div class="v" id="s-tokens">-</div></div>
+</div>
+<section><h2>失败归因（跨 trace 聚合）</h2><table id="t-attr"><thead><tr><th>失败阶段</th><th>次数</th></tr></thead><tbody></tbody></table></section>
+<section><h2>用量与成本（按天 / Key / 模型）</h2><table id="t-usage"><thead><tr><th>日期</th><th>Key</th><th>模型</th><th>Provider</th><th>调用</th><th>Prompt Tok</th><th>Compl Tok</th><th>成本 $</th></tr></thead><tbody></tbody></table></section>
+<section><h2>最近 Traces</h2><table id="t-traces"><thead><tr><th>时间</th><th>Key</th><th>Alias</th><th>状态</th><th>归因</th><th>延迟 ms</th><th>路由</th><th>详情</th></tr></thead><tbody></tbody></table></section>
+<script>
+const H = () => ({'X-Admin-Key': document.getElementById('ak').value});
+async function j(u){ const r = await fetch(u,{headers:H()}); if(!r.ok) throw new Error(r.status); return r.json(); }
+function row(tb, cells){ const tr = tb.insertRow(); cells.forEach(c=>{ const td=tr.insertCell(); td.innerHTML=c; }); return tr; }
+async function loadAll(){
+  try{
+    const [traces, usage, attr] = await Promise.all([j('/admin/traces?limit=100'), j('/admin/usage'), j('/admin/attribution')]);
+    const calls = traces.length, errs = traces.filter(t=>t.status==='error').length;
+    document.getElementById('s-calls').textContent = calls;
+    document.getElementById('s-fail').textContent = calls? (100*errs/calls).toFixed(1)+'%' : '-';
+    document.getElementById('s-cost').textContent = '$'+usage.reduce((a,u)=>a+u.cost_usd,0).toFixed(4);
+    document.getElementById('s-tokens').textContent = usage.reduce((a,u)=>a+u.prompt_tokens+u.completion_tokens,0).toLocaleString();
+    const at = document.querySelector('#t-attr tbody'); at.innerHTML='';
+    attr.forEach(a=>row(at,[`<span class="tag error">${a.stage}</span>`, a.n]));
+    const ut = document.querySelector('#t-usage tbody'); ut.innerHTML='';
+    usage.forEach(u=>row(ut,[u.day,u.key_name,u.model,u.provider,u.calls,u.prompt_tokens,u.completion_tokens,u.cost_usd]));
+    const tt = document.querySelector('#t-traces tbody'); tt.innerHTML='';
+    traces.forEach(t=>{
+      const tr = row(tt,[new Date(t.ts*1000).toLocaleTimeString(), t.key_name||'-', t.alias||'-',
+        `<span class="tag ${t.status}">${t.status}</span>`, t.failure_stage||'-',
+        t.latency_ms??'-', t.provider?`${t.provider}/${t.model}`:'-',
+        `<a href="#" onclick="detail('${t.trace_id}');return false">spans</a>`]);
+      if(t.status==='error') tr.style.background='#fdf3f2';
+    });
+  }catch(e){ alert('加载失败：请检查 Admin Key'); }
+}
+async function detail(id){
+  const t = await j('/admin/traces/'+id);
+  alert(t.spans.map(s=>`${s.name}  [${s.status}]  ${Math.round((s.end_ts-s.start_ts)*1000)}ms\n${JSON.stringify(s.attrs)}`).join('\n\n'));
+}
+loadAll(); setInterval(loadAll, 10000);
+</script>
+</body>
+</html>
